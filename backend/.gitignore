@@ -40,8 +40,6 @@ yarn-error.log*
 .env.production.local
 .env.local
 
-# Prisma
-/generated/prisma
 
 # Temp directories
 .temp

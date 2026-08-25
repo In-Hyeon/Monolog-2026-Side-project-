@@ -4,10 +4,214 @@
 // Get a free hosted Postgres database in seconds: `npx create-db`
 
 generator client {
-  provider = "prisma-client"
-  output   = "../generated/prisma"
+  provider = "prisma-client-js"
 }
 
 datasource db {
   provider = "postgresql"
+}
+
+// =========================================================
+// Domain: Account (계정)
+// =========================================================
+
+/// 서비스 사용자. Firebase Auth로 로그인하고 이 테이블에서 프로필/식별 정보를 관리한다.
+model User {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  firebaseUid  String   @unique @db.VarChar(128)
+  email        String   @unique @db.VarChar(255)
+  name         String   @db.VarChar(50)
+  profileImage String?  @db.VarChar(2048)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  notificationSettings   NotificationSetting[]
+  diaries                Diary[]
+  sentFriendRequests     Friend[]              @relation("FriendRequester")
+  receivedFriendRequests Friend[]              @relation("FriendAddressee")
+  ownedGroups            Groups[]
+  groupMemberships       GroupMember[]
+  groupQuestions         GroupQuestion[]
+  groupAnswers           GroupAnswer[]
+  questionBookmarks      QuestionBookmark[]
+  answerBookmarks        AnswerBookmark[]
+  chatMessages           ChatMessage[]
+}
+
+/// 사용자별 알림 카테고리 on/off 설정.
+model NotificationSetting {
+  id       String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId   String  @db.Uuid
+  category String  @db.VarChar(20) // personalPrompt / groupQna / groupChat
+  enabled  Boolean @default(true)
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@unique([userId, category], map: "NotificationSetting_unique_0")
+}
+
+// =========================================================
+// Domain: Relationship (관계)
+// =========================================================
+
+/// 사용자 간 친구 관계. requester가 addressee에게 요청을 보내는 단방향 레코드.
+model Friend {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  requesterId String   @db.Uuid
+  addresseeId String   @db.Uuid
+  status      String   @default("pending") @db.VarChar(10) // pending / accepted
+  createdAt   DateTime @default(now())
+
+  requester User @relation("FriendRequester", fields: [requesterId], references: [id])
+  addressee User @relation("FriendAddressee", fields: [addresseeId], references: [id])
+
+  @@unique([requesterId, addresseeId], map: "Friend_unique_0")
+}
+
+/// 그룹(가족/친구 모임 단위). 그룹 QnA, 그룹 채팅, 일기 공유의 대상이 된다.
+model Groups {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name          String   @db.VarChar(100)
+  ownerId       String   @db.Uuid
+  inviteCode    String   @unique @db.VarChar(20)
+  codeIssuedAt  DateTime @default(now())
+  codeExpiresAt DateTime
+  createdAt     DateTime @default(now())
+
+  owner        User              @relation(fields: [ownerId], references: [id])
+  members      GroupMember[]
+  diaryShares  DiaryGroupShare[]
+  questions    GroupQuestion[]
+  chatMessages ChatMessage[]
+}
+
+/// 그룹-사용자 매핑. 그룹 소속 여부와 역할을 나타낸다.
+model GroupMember {
+  id       String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  groupId  String   @db.Uuid
+  userId   String   @db.Uuid
+  role     String   @default("member") @db.VarChar(10) // owner / member
+  joinedAt DateTime @default(now())
+
+  group Groups @relation(fields: [groupId], references: [id])
+  user  User   @relation(fields: [userId], references: [id])
+
+  @@unique([groupId, userId], map: "GroupMember_unique_0")
+}
+
+// =========================================================
+// Domain: Diary (일기)
+// =========================================================
+
+/// 개인 일기. 원라인(quick) 또는 정식(full) 작성, 프롬프트 연결, 공개 범위를 가진다.
+model Diary {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  authorId     String   @db.Uuid
+  entryType    String   @default("quick") @db.VarChar(10) // quick / full
+  content      String   @db.Text
+  emoji        String?  @db.VarChar(16)
+  privacyScope String   @default("private") @db.VarChar(10) // private / public / group
+  promptId     String?  @db.Uuid
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  author      User              @relation(fields: [authorId], references: [id])
+  prompt      DailyPrompt?      @relation(fields: [promptId], references: [id])
+  groupShares DiaryGroupShare[]
+}
+
+/// 매일 발송되는 질문 뱅크. 일기 작성을 유도하는 고정 프롬프트 문구 모음.
+model DailyPrompt {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  questionText String   @db.VarChar(255)
+  rotationKey  String?  @db.VarChar(20)
+  createdAt    DateTime @default(now())
+
+  diaries Diary[]
+}
+
+/// 일기-그룹 공유 매핑. privacyScope가 group일 때 어느 그룹에 공유했는지 기록.
+model DiaryGroupShare {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  diaryId   String   @db.Uuid
+  groupId   String   @db.Uuid
+  createdAt DateTime @default(now())
+
+  diary Diary  @relation(fields: [diaryId], references: [id])
+  group Groups @relation(fields: [groupId], references: [id])
+
+  @@unique([diaryId, groupId], map: "DiaryGroupShare_unique_0")
+}
+
+// =========================================================
+// Domain: Group Communication (그룹 소통)
+// =========================================================
+
+/// 그룹 멤버가 자율 등록하는 질문. 48시간 후 소프트 삭제된다.
+model GroupQuestion {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  groupId      String   @db.Uuid
+  authorId     String   @db.Uuid
+  questionText String   @db.Text
+  photoUrl     String?  @db.VarChar(2048)
+  expiresAt    DateTime
+  isDeleted    Boolean  @default(false)
+  createdAt    DateTime @default(now())
+
+  group     Groups             @relation(fields: [groupId], references: [id])
+  author    User               @relation(fields: [authorId], references: [id])
+  answers   GroupAnswer[]
+  bookmarks QuestionBookmark[]
+}
+
+/// GroupQuestion에 대한 답변.
+model GroupAnswer {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  questionId String   @db.Uuid
+  authorId   String   @db.Uuid
+  answerText String   @db.Text
+  photoUrl   String?  @db.VarChar(2048)
+  createdAt  DateTime @default(now())
+
+  question  GroupQuestion    @relation(fields: [questionId], references: [id])
+  author    User             @relation(fields: [authorId], references: [id])
+  bookmarks AnswerBookmark[]
+}
+
+/// 사용자가 저장(북마크)한 질문.
+model QuestionBookmark {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId     String   @db.Uuid
+  questionId String   @db.Uuid
+  createdAt  DateTime @default(now())
+
+  user     User          @relation(fields: [userId], references: [id])
+  question GroupQuestion @relation(fields: [questionId], references: [id])
+
+  @@unique([userId, questionId], map: "QuestionBookmark_unique_0")
+}
+
+/// 사용자가 저장(북마크)한 답변.
+model AnswerBookmark {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String   @db.Uuid
+  answerId  String   @db.Uuid
+  createdAt DateTime @default(now())
+
+  user   User        @relation(fields: [userId], references: [id])
+  answer GroupAnswer @relation(fields: [answerId], references: [id])
+
+  @@unique([userId, answerId], map: "AnswerBookmark_unique_0")
+}
+
+/// 그룹 채팅 메시지. 별도 ChatRoom 없이 Groups가 채팅방 역할을 겸한다.
+model ChatMessage {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  groupId   String   @db.Uuid
+  authorId  String   @db.Uuid
+  content   String   @db.Text
+  createdAt DateTime @default(now())
+
+  group  Groups @relation(fields: [groupId], references: [id])
+  author User   @relation(fields: [authorId], references: [id])
 }

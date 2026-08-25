@@ -1,0 +1,16 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: monolog-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: diary
+    ports:
+      - "5432:5432"
+    volumes:
+      - monolog-postgres-data:/var/lib/postgresql/data
+
+volumes:
+  monolog-postgres-data:
