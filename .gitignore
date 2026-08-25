@@ -1,3 +1,6 @@
 .DS_Store
 *.log
 .claude/settings.local.json
+
+# 개인 학습용 메모 (팀 문서 아님)
+docs/study/
