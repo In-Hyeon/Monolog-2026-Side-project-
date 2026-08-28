@@ -27,8 +27,10 @@ model User {
 
   notificationSettings   NotificationSetting[]
   diaries                Diary[]
-  sentFriendRequests     Friend[]              @relation("FriendRequester")
-  receivedFriendRequests Friend[]              @relation("FriendAddressee")
+  sentFriendRequests     FriendRequest[]       @relation("FriendRequester")
+  receivedFriendRequests FriendRequest[]       @relation("FriendAddressee")
+  friendships            Friendship[]          @relation("FriendshipUser")
+  friendOf               Friendship[]          @relation("FriendshipFriend")
   ownedGroups            Groups[]
   groupMemberships       GroupMember[]
   groupQuestions         GroupQuestion[]
@@ -54,18 +56,31 @@ model NotificationSetting {
 // Domain: Relationship (관계)
 // =========================================================
 
-/// 사용자 간 친구 관계. requester가 addressee에게 요청을 보내는 단방향 레코드.
-model Friend {
+/// 친구 요청의 생애주기(대기 중)만 표현. 수락되면 Friendship으로 이관되며 이 row는 삭제되고, 거절되어도 삭제된다.
+model FriendRequest {
   id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   requesterId String   @db.Uuid
   addresseeId String   @db.Uuid
-  status      String   @default("pending") @db.VarChar(10) // pending / accepted
   createdAt   DateTime @default(now())
 
   requester User @relation("FriendRequester", fields: [requesterId], references: [id])
   addressee User @relation("FriendAddressee", fields: [addresseeId], references: [id])
 
-  @@unique([requesterId, addresseeId], map: "Friend_unique_0")
+  @@unique([requesterId, addresseeId], map: "FriendRequest_unique_0")
+}
+
+/// 성사된 친구 관계를 대칭적으로 저장. 수락 시 (userId, friendId)와 (friendId, userId) 두 row를 함께 생성해
+/// 방향성 고려 없이 userId 기준으로 친구 목록을 즉시 조회할 수 있게 한다.
+model Friendship {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String   @db.Uuid
+  friendId  String   @db.Uuid
+  createdAt DateTime @default(now())
+
+  user   User @relation("FriendshipUser", fields: [userId], references: [id])
+  friend User @relation("FriendshipFriend", fields: [friendId], references: [id])
+
+  @@unique([userId, friendId], map: "Friendship_unique_0")
 }
 
 /// 그룹(가족/친구 모임 단위). 그룹 QnA, 그룹 채팅, 일기 공유의 대상이 된다.
