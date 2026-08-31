@@ -2,5 +2,8 @@
 *.log
 .claude/settings.local.json
 
+# JetBrains IDE (WebStorm/IntelliJ) 로컬 설정
+.idea/
+
 # 개인 학습용 메모 (팀 문서 아님)
 docs/study/
