@@ -8,8 +8,7 @@ import {
 } from "firebase/auth";
 import { auth } from "@/lib/firebase";
 import { useAuth } from "@/lib/auth-context";
-
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001";
+import { apiFetch } from "@/lib/api";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -43,18 +42,10 @@ export default function LoginPage() {
         }
       }
 
-      const idToken = await credential.user.getIdToken();
-      const res = await fetch(`${API_BASE}/user`, {
+      await apiFetch(credential.user, "/user", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${idToken}`,
-        },
         body: JSON.stringify({ name }),
       });
-      if (!res.ok) {
-        throw new Error(`프로필 등록 실패 (${res.status})`);
-      }
 
       router.push("/");
     } catch (err) {
